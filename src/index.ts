@@ -2,10 +2,33 @@ import type { Provider } from "./types.js";
 import { CarryError } from "./types.js";
 import { carryGemini } from "./gemini.js";
 import { carryAnthropic } from "./anthropic.js";
-import { carryOpenAI } from "./openai.js";
+import { carryOpenAI, type OpenAIOptions } from "./openai.js";
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Clone with a consistent error surface: structuredClone throws raw
+ * DataCloneError on uncloneable input — the public API only ever throws
+ * CarryError so agent loops can catch one type.
+ */
+function safeClone<T>(value: T, what: string): T {
+  try {
+    return structuredClone(value);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new CarryError(`${what} could not be cloned safely: ${detail}`);
+  }
+}
+
+export interface CarryOptions {
+  /**
+   * OpenAI-family only: set true when replaying against a server-persisted
+   * conversation (`store: true`). Allows id-only reasoning items without
+   * encrypted_content. Ignored by other providers.
+   */
+  store?: boolean;
 }
 
 /**
@@ -16,9 +39,13 @@ function isObject(value: unknown): value is Record<string, unknown> {
  * a turn that will 400. This validates; it cannot restore a blob that was
  * already dropped upstream — capture with fromResponse() at persist time.
  */
-export function assertReplaySafe(history: unknown[], provider: Provider): unknown[] {
+export function assertReplaySafe(
+  history: unknown[],
+  provider: Provider,
+  options?: CarryOptions,
+): unknown[] {
   if (!Array.isArray(history)) throw new CarryError("history must be an array");
-  const turns = structuredClone(history);
+  const turns = safeClone(history, "history");
   switch (provider) {
     case "gemini":
       return carryGemini(turns);
@@ -26,7 +53,7 @@ export function assertReplaySafe(history: unknown[], provider: Provider): unknow
       return carryAnthropic(turns);
     case "openai":
     case "deepseek":
-      return carryOpenAI(turns, provider);
+      return carryOpenAI(turns, provider, options as OpenAIOptions | undefined);
     default:
       throw new CarryError(`unknown provider: ${String(provider)}`);
   }
@@ -56,19 +83,19 @@ export function fromResponse(response: unknown, provider: Provider): unknown[] {
       if (!isObject(inner) || !Array.isArray(inner["parts"])) {
         throw new CarryError("gemini response must contain candidates[0].content with parts[]");
       }
-      return structuredClone([inner]);
+      return safeClone([inner], "gemini response content");
     }
     case "anthropic": {
       if (!Array.isArray(response.content)) {
         throw new CarryError("anthropic response must contain content[]");
       }
-      return structuredClone([{ role: "assistant", content: response.content }]);
+      return safeClone([{ role: "assistant", content: response.content }], "anthropic response content");
     }
     case "openai": {
       if (!Array.isArray(response.output)) {
         throw new CarryError("openai response must contain output[] (Responses API)");
       }
-      return structuredClone(response.output);
+      return safeClone(response.output, "openai response output");
     }
     case "deepseek": {
       const message = (response.choices as unknown[])?.[0] as Record<string, unknown> | undefined;
@@ -76,7 +103,7 @@ export function fromResponse(response: unknown, provider: Provider): unknown[] {
       if (!isObject(inner)) {
         throw new CarryError("deepseek response must contain choices[0].message");
       }
-      return structuredClone([inner]);
+      return safeClone([inner], "deepseek response message");
     }
     default:
       throw new CarryError(`unknown provider: ${String(provider)}`);
@@ -90,13 +117,19 @@ export function fromResponse(response: unknown, provider: Provider): unknown[] {
  * Returns a NEW array; neither argument is mutated. Throws CarryError when
  * the combined history cannot be proven safe.
  */
-export function append(history: unknown[], response: unknown, provider: Provider): unknown[] {
+export function append(
+  history: unknown[],
+  response: unknown,
+  provider: Provider,
+  options?: CarryOptions,
+): unknown[] {
   if (!Array.isArray(history)) throw new CarryError("history must be an array");
-  return assertReplaySafe([...history, ...fromResponse(response, provider)], provider);
+  return assertReplaySafe([...history, ...fromResponse(response, provider)], provider, options);
 }
 
 export type { Provider } from "./types.js";
 export { CarryError } from "./types.js";
+export type { OpenAIOptions } from "./openai.js";
 export { carryGemini } from "./gemini.js";
 export { carryAnthropic } from "./anthropic.js";
 export { carryOpenAI } from "./openai.js";

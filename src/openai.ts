@@ -15,6 +15,27 @@ const CHAT_ROLES = new Set([
   "function",
 ]);
 
+/**
+ * Roles a Responses `type: "message"` item may carry. The canonical
+ * stateless replay mixes fresh user/system/developer input messages with
+ * prior assistant output items — restricting to assistant rejects valid
+ * production payloads.
+ */
+const MESSAGE_ROLES = new Set(["assistant", "user", "system", "developer"]);
+
+/** Responses item types whose id/status fields we type-check (nulls 400). */
+const TYPED_ITEMS = new Set(["reasoning", "message", "function_call", "function_call_output"]);
+
+export interface OpenAIOptions {
+  /**
+   * Set true when replaying against a server-persisted conversation
+   * (`store: true` / previous_response_id): reasoning items may then be
+   * id-only, without encrypted_content. Default false — stateless replay
+   * must preserve the blob or the next call 400s.
+   */
+  store?: boolean;
+}
+
 function isObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -124,14 +145,30 @@ function assertJsonSafe(
   }
 }
 
-function validateResponses(entries: Indexed[]): void {
+/** Null SDK fields (e.g. `status: null` from model_dump) are JSON-safe but the API 400s on them. */
+function assertStringField(item: JsonObject, key: string, index: number, what: string): void {
+  if (hasOwn(item, key) && typeof item[key] !== "string") {
+    throw new CarryError(
+      `OpenAI ${what} at index ${index} has non-string ${key} (null SDK fields 400 — drop or restore the value)`,
+    );
+  }
+}
+
+function validateResponses(entries: Indexed[], options?: OpenAIOptions): void {
   for (let pos = 0; pos < entries.length; pos += 1) {
     const { item, index } = entries[pos];
 
+    if (typeof item.type === "string" && TYPED_ITEMS.has(item.type)) {
+      assertStringField(item, "id", index, item.type);
+      assertStringField(item, "status", index, item.type);
+    }
+
     if (item.type === "message") {
-      if (item.role !== "assistant") {
+      // Responses input mixes fresh user/system/developer messages with
+      // prior assistant output items — all four roles are valid here.
+      if (typeof item.role !== "string" || !MESSAGE_ROLES.has(item.role)) {
         throw new CarryError(
-          `OpenAI Responses message at index ${index} must have role assistant`,
+          `OpenAI Responses message at index ${index} has unsupported role: ${String(item.role)}`,
         );
       }
       if (!Array.isArray(item.content)) {
@@ -143,42 +180,54 @@ function validateResponses(entries: Indexed[]): void {
 
     if (item.type !== "reasoning") continue;
 
-    // store:false replay cannot recover a missing server-side reasoning item.
-    if (
-      !hasOwn(item, "encrypted_content") ||
-      typeof item.encrypted_content !== "string" ||
-      item.encrypted_content.length === 0
-    ) {
+    // Stateless replay cannot recover a missing server-side reasoning blob.
+    // store:true conversations may replay id-only reasoning items instead.
+    if (hasOwn(item, "encrypted_content")) {
+      if (typeof item.encrypted_content !== "string" || item.encrypted_content.length === 0) {
+        throw new CarryError(
+          `OpenAI reasoning item at index ${index} requires non-empty encrypted_content for store:false replay`,
+        );
+      }
+      continue;
+    }
+    if (!(options?.store === true && typeof item.id === "string" && item.id.length > 0)) {
       throw new CarryError(
-        `OpenAI reasoning item at index ${index} requires non-empty encrypted_content for store:false replay`,
+        `OpenAI reasoning item at index ${index} requires non-empty encrypted_content for store:false replay (pass { store: true } for server-persisted id-only replay)`,
       );
     }
 
-    // Pairing is order within the output-item sequence, not adjacency: a
-    // reasoning item must have its message LATER in the sequence. Tool flows
-    // (reasoning -> function_call -> output -> message) are the canonical
-    // shape; only an orphaned reasoning item with no later message breaks
-    // store:false replay. A dangling function_call without its output is
-    // preserved verbatim and left to the API — it does not 400.
-    const hasLaterMessage = entries
-      .slice(pos + 1)
-      .some((entry) => entry.item.type === "message");
-    if (!hasLaterMessage) {
-      throw new CarryError(
-        `OpenAI reasoning item at index ${index} must be followed by its message in the output-item sequence`,
-      );
-    }
+    // NOTE (deliberate non-check): an in-flight tool turn — reasoning +
+    // function_call with no trailing message yet — is VALID agent-loop
+    // state, so no later message is required. The inverse failure (a message
+    // that lost its preceding reasoning after message-only filtering) is
+    // indistinguishable client-side from a valid no-reasoning reply, so we
+    // do not guess: order is preserved verbatim and the API judges the rest.
   }
 }
 
-function validateChat(entries: Indexed[]): void {
+function hasToolCalls(message: JsonObject): boolean {
+  return Array.isArray(message.tool_calls) && message.tool_calls.length > 0;
+}
+
+function validateChat(entries: Indexed[], provider: "openai" | "deepseek"): void {
   for (const { item: message, index } of entries) {
     const role = message.role as string;
     if (!CHAT_ROLES.has(role)) {
       throw new CarryError(`chat message at index ${index} has unsupported role: ${role}`);
     }
 
-    if (!hasOwn(message, "reasoning_content")) continue;
+    if (!hasOwn(message, "reasoning_content")) {
+      // DeepSeek thinking + tools: an assistant message that issued a tool
+      // call must send reasoning_content back on every later request. The
+      // production failure is ABSENCE — a rebuilt message with only role,
+      // content and tool_calls — so absence with tool_calls throws here.
+      if (provider === "deepseek" && role === "assistant" && hasToolCalls(message)) {
+        throw new CarryError(
+          `DeepSeek assistant message at index ${index} issued tool_calls without reasoning_content (replay 400s — preserve choices[0].message verbatim)`,
+        );
+      }
+      continue;
+    }
     if (role !== "assistant") {
       throw new CarryError(
         `reasoning_content at chat message index ${index} is only safe on an assistant message`,
@@ -189,6 +238,11 @@ function validateChat(entries: Indexed[]): void {
         `reasoning_content at chat message index ${index} must be a string`,
       );
     }
+    if (provider === "deepseek" && hasToolCalls(message) && message.reasoning_content.length === 0) {
+      throw new CarryError(
+        `DeepSeek assistant message at index ${index} issued tool_calls with empty reasoning_content (replay 400s)`,
+      );
+    }
   }
 }
 
@@ -196,17 +250,22 @@ function validateChat(entries: Indexed[]): void {
  * Safety rules:
  * - each history element must be a Responses output item or a chat message;
  *   the canonical stateless replay interleaves fresh chat messages with prior
- *   output items, so mixed arrays validate each element by its own kind
- *   (reasoning/message pairing is checked within the output-item sequence);
- * - for OpenAI Responses, require each reasoning item to carry a non-empty
- *   encrypted_content blob and be followed by its message in that sequence;
- * - DeepSeek accepts chat messages only;
+ *   output items, so mixed arrays validate each element by its own kind;
+ * - for OpenAI Responses, each reasoning item must carry a non-empty
+ *   encrypted_content blob (stateless default) or — with { store: true } —
+ *   a server-persisted id. In-flight tool turns (reasoning + function_call,
+ *   no trailing message yet) are valid and pass;
+ * - DeepSeek accepts chat messages only; an assistant message with
+ *   tool_calls must carry non-empty reasoning_content;
+ * - null id/status fields (model_dump artifacts) throw even though they are
+ *   JSON-safe, because the API 400s on them;
  * - preserve every JSON field and array position by structured-cloning only
  *   after validation; otherwise throw CarryError rather than sanitize.
  */
 export function carryOpenAI(
   turns: unknown[],
   provider: "openai" | "deepseek",
+  options?: OpenAIOptions,
 ): unknown[] {
   if (!Array.isArray(turns)) throw new CarryError("history must be an array");
   if (provider !== "openai" && provider !== "deepseek") {
@@ -239,15 +298,15 @@ export function carryOpenAI(
     if (provider === "deepseek") {
       throw new CarryError("DeepSeek history must use chat messages, not Responses output items");
     }
-    validateResponses(responses);
+    validateResponses(responses, options);
   } else if (shape === "chat") {
-    validateChat(chat);
+    validateChat(chat, provider);
   } else {
     if (provider === "deepseek") {
       throw new CarryError("DeepSeek history must use chat messages, not Responses output items");
     }
-    validateResponses(responses);
-    validateChat(chat);
+    validateResponses(responses, options);
+    validateChat(chat, provider);
   }
 
   try {

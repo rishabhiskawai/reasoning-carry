@@ -3,26 +3,52 @@
 Carry opaque reasoning blocks across LLM turns without tripping provider 400s.
 
 Every provider now stamps **opaque reasoning blobs** that must round-trip
-byte-identical on the next turn:
+byte-identical on the next call — Gemini 3 `thoughtSignature`, Claude
+`thinking.signature`, OpenAI Responses `reasoning.encrypted_content`,
+DeepSeek `reasoning_content`. Drop one (rebuild history, strip unknown
+fields, `model_dump()` nulls, openai-compat proxies) and the next call 400s.
 
-- **Gemini 3+** — `thought_signature` on text/functionCall parts (missing → 400)
-- **Claude thinking** — `thinking`/`redacted_thinking` + `signature` (incomplete replay → 400)
-- **OpenAI Responses** — `reasoning` items with `encrypted_content` (omitted with `store:false` → pairing error)
-- **DeepSeek** — `reasoning_content` on messages (stripped by "drop unknown fields" passes)
+## The rule
 
-Normal code — `JSON.parse(JSON.stringify())`, proxies, sanitizers — silently
-strips these. Everything looks fine, then the next call 400s. This package is
-the one-line guard:
+**Never rebuild history. Append the provider's response object unchanged.**
 
 ```ts
-import { carry } from "reasoning-carry";
+import { append, fromResponse, assertReplaySafe } from "reasoning-carry";
 
-const safe = await callModel(carry(history, "gemini"));
+// after each API call, persist the response verbatim:
+history = append(history, response, "openai");
+
+// or capture + combine manually:
+const turns = fromResponse(response, "anthropic");
+history = [...history, ...turns];
+
+// optional guard before sending: throws CarryError instead of a 400
+history = assertReplaySafe(history, "gemini");
 ```
 
-`carry(history, provider)` is pure (JSON-in/JSON-out, never mutates input):
-blobs preserved byte-identical and in order, everything else untouched.
-Shapes it cannot prove safe throw `CarryError` instead of shipping a turn
-that will 400.
+`fromResponse` understands the documented shapes (`candidates[0].content`,
+`response.content`, `response.output`, `choices[0].message`) and clones —
+your live response object is never mutated. `assertReplaySafe` is the
+optional linter, not the product: it cannot restore a blob that was already
+dropped upstream.
 
-Zero runtime dependencies. Node 18+.
+## Options
+
+```ts
+// store:true / previous_response_id conversations may replay id-only
+// reasoning items (no encrypted_content). Default is stateless (strict).
+assertReplaySafe(history, "openai", { store: true });
+```
+
+## Limits (honest)
+
+- Rules are validated against documented API behavior and synthetic
+  fixtures, not captured live 200/400 traffic — real round-trip bodies are
+  the next milestone before any 1.0.
+- Gemini validates the current turn only (older compacted turns pass);
+  image-workflow signature rules are not encoded.
+- A `type: "message"` that lost its preceding reasoning after message-only
+  filtering is indistinguishable from a valid no-reasoning reply, so the
+  guard preserves order and lets the API judge it.
+
+Zero runtime dependencies. ESM + CJS + types.

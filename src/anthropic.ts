@@ -1,6 +1,8 @@
 import { CarryError } from "./types.js";
 
-const CLAUDE_ROLES = new Set(["user", "assistant", "system"]);
+// Messages API roles are user|assistant only — a `system` ROLE inside
+// messages[] 400s (system prompts belong in the separate `system` param).
+const CLAUDE_ROLES = new Set(["user", "assistant"]);
 const THINKING_BLOCK_TYPES = new Set(["thinking", "redacted_thinking"]);
 const OPENAI_BLOCK_TYPES = new Set(["image_url", "function", "file", "input_text", "output_text"]);
 
@@ -30,8 +32,8 @@ function looksLikeClaudeMessage(turn: unknown): boolean {
 
 /**
  * True when `turns` looks like a Claude Messages API `messages[]`:
- * objects with role user|assistant|system and string or typed content blocks.
- * Empty / Gemini parts[] / OpenAI tool_calls|role:tool → false.
+ * objects with role user|assistant and string or typed content blocks.
+ * Empty / Gemini parts[] / OpenAI tool_calls|role:tool|role:system → false.
  */
 export function supportsAnthropic(turns: unknown[]): boolean {
   if (!Array.isArray(turns) || turns.length === 0) return false;
@@ -60,17 +62,41 @@ function assertThinkingPrefix(role: unknown, type: string, seenNonThinking: bool
  *
  * THROW when we cannot prove the next request will keep complete thinking
  * blobs (signature-stripped thinking, hollow redacted_thinking, thinking after
- * non-thinking, broken tool_use/tool_result ids, non-message turns).
+ * non-thinking, broken tool_use/tool_result ids, non-message turns, system
+ * role inside messages[]).
+ *
+ * Thinking + tool_use: with thinking enabled the API 400s
+ * ("expected thinking or redacted_thinking, but found tool_use") when an
+ * assistant message carries tool_use without a thinking prefix. The request
+ * carries no thinking flag, so the codec uses conversation evidence: once
+ * ANY thinking block appears in the history, every assistant message
+ * containing tool_use must open with thinking/redacted_thinking. Histories
+ * with no thinking anywhere (thinking off) are unaffected.
  *
  * PASS (structuredClone, no drop/reorder/mutate) when every thinking block has
  * a non-empty signature, every redacted_thinking has non-empty `data`, and
  * tool_result ids resolve to earlier tool_use ids. tool_result.content is not
- * inspected. Trailing unmatched tool_use is allowed (in-flight tool turn).
+ * inspected. Trailing unmatched tool_use is allowed (in-flight tool turn —
+ * with a thinking prefix when thinking is on).
  */
 export function carryAnthropic(turns: unknown[]): unknown[] {
   if (!Array.isArray(turns)) fail("anthropic history must be an array");
 
   const cloned = cloneTurns(turns);
+
+  // Conversation-level evidence: is thinking enabled for this history?
+  let thinkingEnabled = false;
+  for (const msg of cloned) {
+    if (!isRecord(msg) || !Array.isArray(msg.content)) continue;
+    for (const block of msg.content) {
+      if (isRecord(block) && typeof block.type === "string" && THINKING_BLOCK_TYPES.has(block.type)) {
+        thinkingEnabled = true;
+        break;
+      }
+    }
+    if (thinkingEnabled) break;
+  }
+
   const pendingToolUseIds = new Set<string>();
 
   for (let i = 0; i < cloned.length; i++) {
@@ -85,6 +111,19 @@ export function carryAnthropic(turns: unknown[]): unknown[] {
     if (typeof content === "string") continue;
     if (content == null) fail(`turn ${i} missing content (cannot prove safe)`);
     if (!Array.isArray(content)) fail(`turn ${i} content is neither string nor array`);
+
+    if (
+      thinkingEnabled &&
+      msg.role === "assistant" &&
+      (content as unknown[]).some((b) => isRecord(b) && b.type === "tool_use")
+    ) {
+      const first = (content as unknown[])[0];
+      if (!isRecord(first) || typeof first.type !== "string" || !THINKING_BLOCK_TYPES.has(first.type)) {
+        fail(
+          `turn ${i} carries tool_use without a thinking/redacted_thinking prefix while thinking is enabled (Anthropic replay 400s: expected thinking, found tool_use)`,
+        );
+      }
+    }
 
     let seenNonThinking = false;
     for (let j = 0; j < content.length; j++) {

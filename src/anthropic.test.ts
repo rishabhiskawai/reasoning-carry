@@ -304,6 +304,42 @@ describe("carryAnthropic", () => {
     expect(carryAnthropic(turns)).toEqual(turns);
   });
 
+  it("rejects tool_use stripped of its thinking prefix while thinking is on", () => {
+    // Thinking appears earlier in the history (enabled), but the tool turn
+    // lost its prefix — the API 400s "expected thinking, found tool_use".
+    const turns = [
+      {
+        role: "assistant",
+        content: [thinking("plan", SIG_A), text("will check")],
+      },
+      {
+        role: "user",
+        content: "go ahead",
+      },
+      {
+        role: "assistant",
+        content: [toolUse("toolu_bare", "x", {})],
+      },
+    ];
+    expectCarryError(() => carryAnthropic(turns));
+  });
+
+  it("allows bare tool_use when thinking never appears (thinking off)", () => {
+    const turns = [
+      {
+        role: "assistant",
+        content: [toolUse("toolu_plain", "x", {})],
+      },
+    ];
+    expect(carryAnthropic(turns)).toEqual(turns);
+  });
+
+  it("rejects a system role inside messages[] (belongs in the system param)", () => {
+    const turns = [{ role: "system", content: "be brief" }];
+    expectCarryError(() => carryAnthropic(turns));
+    expect(supportsAnthropic(turns)).toBe(false);
+  });
+
   it("keeps two tool_use ids paired to later results without reordering", () => {
     const turns = [
       {

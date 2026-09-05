@@ -175,9 +175,10 @@ describe("carryGemini — pass-through safety", () => {
     expect(out).toEqual(input);
   });
 
-  it("accepts a model turn where the functionCall has no signature AND it is the FIRST model turn", () => {
-    // First-turn tool calls are tolerated by the Gemini API without a
-    // signature. Our policy: pass, don't throw.
+  it("rejects a first-turn functionCall with no signature (Gemini 3 requires it)", () => {
+    // The old first-turn exemption was Gemini 2.5 behavior. Gemini 3 400s
+    // when the first functionCall of a model step lacks its signature —
+    // including the very first model step.
     const input = [
       { role: "user", parts: [{ text: "what's the time?" }] },
       {
@@ -185,13 +186,73 @@ describe("carryGemini — pass-through safety", () => {
         parts: [
           {
             functionCall: { name: "get_time", args: {} },
-            // NOTE: no thought_signature
+            // NOTE: no thoughtSignature
+          },
+        ],
+      },
+    ];
+    expect(() => carryGemini(input)).toThrow(CarryError);
+    expect(() => carryGemini(input)).toThrow(/missing thought_signature/);
+  });
+
+  it("accepts the REST camelCase thoughtSignature spelling", () => {
+    const input = [
+      { role: "user", parts: [{ text: "what's the time?" }] },
+      {
+        role: "model",
+        parts: [
+          {
+            functionCall: { name: "get_time", args: {} },
+            thoughtSignature: SIG_A,
           },
         ],
       },
     ];
     const out = carryGemini(input);
     expect(out).toEqual(input);
+  });
+
+  it("requires the signature only on the first parallel functionCall of a step", () => {
+    // Production parallel shape: signature on the first call, siblings bare.
+    const input = [
+      { role: "user", parts: [{ text: "time and weather?" }] },
+      {
+        role: "model",
+        parts: [
+          {
+            functionCall: { name: "get_time", args: {} },
+            thought_signature: SIG_A,
+          },
+          {
+            functionCall: { name: "get_weather", args: {} },
+            // no signature on the sibling — valid
+          },
+        ],
+      },
+    ];
+    expect(() => carryGemini(input)).not.toThrow();
+  });
+
+  it("ignores missing signatures in older turns (compacted history passes)", () => {
+    // Only the current turn (newest user text forward) is validated.
+    const input = [
+      { role: "user", parts: [{ text: "first question" }] },
+      {
+        role: "model",
+        parts: [{ functionCall: { name: "old_tool", args: {} } }], // compacted away
+      },
+      { role: "user", parts: [{ text: "new question" }] },
+      {
+        role: "model",
+        parts: [
+          {
+            functionCall: { name: "new_tool", args: {} },
+            thoughtSignature: SIG_B,
+          },
+        ],
+      },
+    ];
+    expect(() => carryGemini(input)).not.toThrow();
   });
 
   it("passes model turns where text parts lack a signature (Gemini tolerates it)", () => {
@@ -370,7 +431,10 @@ describe("case-count lock (CI sanity)", () => {
       "passes functionResponse parts through untouched (no signature needed)",
       "accepts an empty history (vacuously safe)",
       "accepts a single user turn with plain text — no signature required",
-      "accepts a model turn where the functionCall has no signature AND it is the FIRST model turn",
+      "rejects a first-turn functionCall with no signature (Gemini 3 requires it)",
+      "accepts the REST camelCase thoughtSignature spelling",
+      "requires the signature only on the first parallel functionCall of a step",
+      "ignores missing signatures in older turns (compacted history passes)",
       "passes model turns where text parts lack a signature (Gemini tolerates it)",
       "does not mutate a frozen input array",
       "does not mutate frozen parts even when adding a pass-through turn",

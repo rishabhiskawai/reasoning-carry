@@ -91,32 +91,79 @@ describe("carryOpenAI Responses API", () => {
     expect(() => carryOpenAI(turns, "openai")).toThrow(/encrypted_content/);
   });
 
-  it("rejects an orphaned trailing reasoning item", () => {
-    expect(() => carryOpenAI([responsePair()[0]], "openai")).toThrow(/followed by.*message/);
+  it("accepts a trailing reasoning item with no message yet (in-flight tool turn)", () => {
+    // Turn 2 of every agent loop: reasoning emitted, assistant message not
+    // yet produced. The old pairing rule rejected this valid state — the
+    // uninstall-grade false positive.
+    const [reasoning] = responsePair();
+    expect(() => carryOpenAI([reasoning], "openai")).not.toThrow();
+    expect(carryOpenAI([reasoning], "openai")).toEqual([reasoning]);
+  });
+
+  it("accepts an in-flight reasoning + function_call turn without any message", () => {
+    const [reasoning] = responsePair();
+    const turns = [
+      reasoning,
+      { type: "function_call", id: "fc_1", call_id: "call_1", name: "lookup", arguments: "{}" },
+      { type: "function_call_output", call_id: "call_1", output: "{}" },
+    ];
+
+    expect(() => carryOpenAI(turns, "openai")).not.toThrow();
   });
 
   it("preserves tool-flow items between a reasoning item and its message", () => {
-    // Canonical agentic replay: reasoning -> function_call -> output -> message.
-    // A dangling function_call without its output is preserved verbatim (the
-    // API tolerates it) — only an orphaned reasoning item with no later
-    // message breaks replay, covered by the orphan test above.
+    // Canonical completed replay: reasoning -> function_call -> output -> message.
     const [reasoning, message] = responsePair();
     const turns = [reasoning, { type: "function_call", id: "fc_1", name: "lookup" }, message];
 
     expect(() => carryOpenAI(turns, "openai")).not.toThrow();
   });
 
-  it("rejects a reordered message-before-reasoning array", () => {
+  it("accepts message-before-reasoning order (next turn already started)", () => {
     const [reasoning, message] = responsePair();
 
-    expect(() => carryOpenAI([message, reasoning], "openai")).toThrow(/followed by.*message/);
+    expect(() => carryOpenAI([message, reasoning], "openai")).not.toThrow();
   });
 
-  it("rejects a response message whose role is not assistant", () => {
+  it("accepts user-role input messages mixed with prior output items", () => {
+    // Canonical stateless replay: fresh user input + prior assistant output.
     const turns = responsePair();
     (turns[1] as { role: string }).role = "user";
 
-    expect(() => carryOpenAI(turns, "openai")).toThrow(/message.*assistant/i);
+    expect(() => carryOpenAI(turns, "openai")).not.toThrow();
+  });
+
+  it("rejects a response message with a role outside the Responses set", () => {
+    const turns = responsePair();
+    (turns[1] as { role: string }).role = "tool";
+
+    expect(() => carryOpenAI(turns, "openai")).toThrow(/unsupported role/);
+  });
+
+  it("rejects null id/status fields from model_dump artifacts", () => {
+    const withNullId = responsePair();
+    (withNullId[0] as { id: unknown }).id = null;
+    expect(() => carryOpenAI(withNullId, "openai")).toThrow(/non-string id/);
+
+    const withNullStatus = responsePair();
+    (withNullStatus[1] as { status: unknown }).status = null;
+    expect(() => carryOpenAI(withNullStatus, "openai")).toThrow(/non-string status/);
+  });
+
+  it("allows id-only reasoning replay with { store: true }", () => {
+    const turns = responsePair();
+    delete (turns[0] as { encrypted_content?: string }).encrypted_content;
+
+    expect(() => carryOpenAI(turns, "openai")).toThrow(/encrypted_content/);
+    expect(carryOpenAI(turns, "openai", { store: true })).toEqual(turns);
+  });
+
+  it("still rejects id-only reasoning with { store: true } when no id exists", () => {
+    const turns = responsePair();
+    delete (turns[0] as { encrypted_content?: string }).encrypted_content;
+    delete (turns[0] as { id?: string }).id;
+
+    expect(() => carryOpenAI(turns, "openai", { store: true })).toThrow(/encrypted_content/);
   });
 
   it("returns a deep clone rather than aliases nested input", () => {
@@ -214,6 +261,50 @@ describe("carryOpenAI chat and DeepSeek messages", () => {
     expect(() => carryOpenAI(turns, "deepseek")).toThrow(/reasoning_content.*assistant/);
   });
 
+  it("rejects DeepSeek tool_calls without reasoning_content (the documented 400)", () => {
+    const turns = [
+      {
+        role: "assistant",
+        content: "Checking.",
+        tool_calls: [
+          { id: "call_1", type: "function", function: { name: "weather", arguments: "{}" } },
+        ],
+      },
+    ];
+
+    expect(() => carryOpenAI(turns, "deepseek")).toThrow(/reasoning_content/);
+  });
+
+  it("accepts DeepSeek tool_calls with reasoning_content preserved", () => {
+    const turns = [
+      {
+        role: "assistant",
+        content: "Checking.",
+        reasoning_content: "Synthetic hidden reasoning.",
+        tool_calls: [
+          { id: "call_1", type: "function", function: { name: "weather", arguments: "{}" } },
+        ],
+      },
+    ];
+
+    expect(carryOpenAI(turns, "deepseek")).toEqual(turns);
+  });
+
+  it("rejects DeepSeek tool_calls with empty reasoning_content", () => {
+    const turns = [
+      {
+        role: "assistant",
+        content: "Checking.",
+        reasoning_content: "",
+        tool_calls: [
+          { id: "call_1", type: "function", function: { name: "weather", arguments: "{}" } },
+        ],
+      },
+    ];
+
+    expect(() => carryOpenAI(turns, "deepseek")).toThrow(/reasoning_content/);
+  });
+
   it("rejects Responses output-item arrays for the DeepSeek provider", () => {
     expect(() => carryOpenAI(responsePair(), "deepseek")).toThrow(/DeepSeek.*chat/i);
   });
@@ -229,13 +320,14 @@ describe("carryOpenAI chat and DeepSeek messages", () => {
     expect(carryOpenAI(structuredClone(turns), "openai")).toEqual(turns);
   });
 
-  it("still rejects mixed arrays whose reasoning pair is broken", () => {
+  it("accepts mixed arrays whose reasoning has no later message yet (in-flight)", () => {
     const turns = [
       { role: "user", content: "Prompt" },
       { type: "reasoning", id: "rs_1", encrypted_content: "QUJD", summary: [] },
     ];
 
-    expect(() => carryOpenAI(turns, "openai")).toThrow(/message/);
+    expect(() => carryOpenAI(turns, "openai")).not.toThrow();
+    expect(carryOpenAI(structuredClone(turns), "openai")).toEqual(turns);
   });
 });
 

@@ -68,6 +68,7 @@ export function blobPaths(value: unknown, provider: Provider, path = "$"): strin
   const found: string[] = [];
   const nonempty = (key: string) => typeof value[key] === "string" && value[key].length > 0;
   if (provider === "gemini" && nonempty("thought_signature")) found.push(`${path}.thought_signature`);
+  if (provider === "gemini" && nonempty("thoughtSignature")) found.push(`${path}.thoughtSignature`);
   if (provider === "anthropic") {
     if (value.type === "thinking" && typeof value.thinking === "string" && nonempty("signature")) {
       found.push(`${path}.thinking`, `${path}.signature`);
