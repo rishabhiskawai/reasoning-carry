@@ -77,8 +77,14 @@ describe("fromResponse", () => {
     expect(() => fromResponse({}, "gemini")).toThrow(CarryError);
     expect(() => fromResponse({ content: "nope" }, "anthropic")).toThrow(CarryError);
     expect(() => fromResponse({ choices: [] }, "openai")).toThrow(CarryError);
+    expect(() => fromResponse({}, "openai")).toThrow(CarryError);
     expect(() => fromResponse({}, "deepseek")).toThrow(CarryError);
     expect(() => fromResponse(null, "openai")).toThrow(CarryError);
+  });
+
+  it("extracts an openai Chat Completions message (choices path)", () => {
+    const res = { choices: [{ message: { role: "assistant", content: "Hi." }, finish_reason: "stop" }] };
+    expect(fromResponse(res, "openai")).toEqual([{ role: "assistant", content: "Hi." }]);
   });
 
   it("throws on unknown provider", () => {
@@ -111,5 +117,20 @@ describe("append", () => {
     const mod = await import("./index.js");
     expect(mod.carry).toBe(mod.assertReplaySafe);
     expect(assertReplaySafe([], "openai")).toEqual([]);
+  });
+
+  it("every fromResponse extraction survives the guard standalone (no echo-tautology)", () => {
+    const cases = [
+      [geminiRes(), "gemini"],
+      [claudeRes(), "anthropic"],
+      [openaiRes(), "openai"],
+      [deepseekRes(), "deepseek"],
+      [{ choices: [{ message: { role: "assistant", content: "Hi." } }] }, "openai"],
+    ] as const;
+    for (const [res, provider] of cases) {
+      const extracted = fromResponse(res, provider);
+      // must not throw AND must preserve the blobs byte-identical
+      expect(assertReplaySafe(structuredClone(extracted), provider)).toEqual(extracted);
+    }
   });
 });

@@ -340,6 +340,32 @@ describe("carryAnthropic", () => {
     expect(supportsAnthropic(turns)).toBe(false);
   });
 
+  it("thinking:true catches a fully-stripped tool turn with no evidence left", () => {
+    const turns = [
+      {
+        role: "assistant",
+        content: [toolUse("toolu_gone", "x", {})],
+      },
+    ];
+    expect(carryAnthropic(turns)).toEqual(turns); // no evidence → passes by default
+    expectCarryError(() => carryAnthropic(turns, { thinking: true }));
+  });
+
+  it("thinking:false disables the prefix rule even with thinking present", () => {
+    const turns = [
+      {
+        role: "assistant",
+        content: [thinking("plan", SIG_A), text("ok")],
+      },
+      {
+        role: "assistant",
+        content: [toolUse("toolu_b", "x", {})],
+      },
+    ];
+    expectCarryError(() => carryAnthropic(turns));
+    expect(carryAnthropic(turns, { thinking: false })).toEqual(turns);
+  });
+
   it("keeps two tool_use ids paired to later results without reordering", () => {
     const turns = [
       {

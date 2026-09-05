@@ -261,8 +261,9 @@ describe("carryOpenAI chat and DeepSeek messages", () => {
     expect(() => carryOpenAI(turns, "deepseek")).toThrow(/reasoning_content.*assistant/);
   });
 
-  it("rejects DeepSeek tool_calls without reasoning_content (the documented 400)", () => {
+  it("rejects DeepSeek tool_calls without reasoning_content when thinking is evidenced", () => {
     const turns = [
+      { role: "assistant", content: "First.", reasoning_content: "Synthetic thinking on." },
       {
         role: "assistant",
         content: "Checking.",
@@ -290,8 +291,9 @@ describe("carryOpenAI chat and DeepSeek messages", () => {
     expect(carryOpenAI(turns, "deepseek")).toEqual(turns);
   });
 
-  it("rejects DeepSeek tool_calls with empty reasoning_content", () => {
+  it("rejects DeepSeek tool_calls with empty reasoning_content when thinking is evidenced", () => {
     const turns = [
+      { role: "assistant", content: "First.", reasoning_content: "Synthetic thinking on." },
       {
         role: "assistant",
         content: "Checking.",
@@ -303,6 +305,49 @@ describe("carryOpenAI chat and DeepSeek messages", () => {
     ];
 
     expect(() => carryOpenAI(turns, "deepseek")).toThrow(/reasoning_content/);
+  });
+
+  it("passes bare DeepSeek tool_calls with no thinking evidence (thinking may be off)", () => {
+    const turns = [
+      {
+        role: "assistant",
+        content: "Checking.",
+        tool_calls: [
+          { id: "call_1", type: "function", function: { name: "weather", arguments: "{}" } },
+        ],
+      },
+    ];
+
+    expect(carryOpenAI(turns, "deepseek")).toEqual(turns);
+  });
+
+  it("thinking:true forces the DeepSeek tool rule without evidence", () => {
+    const turns = [
+      {
+        role: "assistant",
+        content: "Checking.",
+        tool_calls: [
+          { id: "call_1", type: "function", function: { name: "weather", arguments: "{}" } },
+        ],
+      },
+    ];
+
+    expect(() => carryOpenAI(turns, "deepseek", { thinking: true })).toThrow(/reasoning_content/);
+  });
+
+  it("thinking:false disables the DeepSeek tool rule even with evidence", () => {
+    const turns = [
+      { role: "assistant", content: "First.", reasoning_content: "Synthetic thinking on." },
+      {
+        role: "assistant",
+        content: "Checking.",
+        tool_calls: [
+          { id: "call_1", type: "function", function: { name: "weather", arguments: "{}" } },
+        ],
+      },
+    ];
+
+    expect(carryOpenAI(turns, "deepseek", { thinking: false })).toEqual(turns);
   });
 
   it("rejects Responses output-item arrays for the DeepSeek provider", () => {

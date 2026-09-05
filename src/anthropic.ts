@@ -40,6 +40,17 @@ export function supportsAnthropic(turns: unknown[]): boolean {
   return turns.every(looksLikeClaudeMessage);
 }
 
+export interface AnthropicOptions {
+  /**
+   * Declare thinking is enabled for this conversation. Forces the
+   * tool_use ⇒ thinking-prefix rule even when no thinking block survives
+   * in the history (fully stripped). `false` disables the rule (thinking
+   * off). Default undefined: infer from history — enforced once ANY
+   * thinking block appears.
+   */
+  thinking?: boolean;
+}
+
 function cloneTurns(turns: unknown[]): unknown[] {
   try {
     return structuredClone(turns);
@@ -79,22 +90,27 @@ function assertThinkingPrefix(role: unknown, type: string, seenNonThinking: bool
  * inspected. Trailing unmatched tool_use is allowed (in-flight tool turn —
  * with a thinking prefix when thinking is on).
  */
-export function carryAnthropic(turns: unknown[]): unknown[] {
+export function carryAnthropic(turns: unknown[], options?: AnthropicOptions): unknown[] {
   if (!Array.isArray(turns)) fail("anthropic history must be an array");
 
   const cloned = cloneTurns(turns);
 
   // Conversation-level evidence: is thinking enabled for this history?
-  let thinkingEnabled = false;
-  for (const msg of cloned) {
-    if (!isRecord(msg) || !Array.isArray(msg.content)) continue;
-    for (const block of msg.content) {
-      if (isRecord(block) && typeof block.type === "string" && THINKING_BLOCK_TYPES.has(block.type)) {
-        thinkingEnabled = true;
-        break;
+  // Explicit flag wins (covers fully-stripped histories with no evidence
+  // left); otherwise infer from any surviving thinking block.
+  let thinkingEnabled = options?.thinking;
+  if (thinkingEnabled === undefined) {
+    thinkingEnabled = false;
+    for (const msg of cloned) {
+      if (!isRecord(msg) || !Array.isArray(msg.content)) continue;
+      for (const block of msg.content) {
+        if (isRecord(block) && typeof block.type === "string" && THINKING_BLOCK_TYPES.has(block.type)) {
+          thinkingEnabled = true;
+          break;
+        }
       }
+      if (thinkingEnabled) break;
     }
-    if (thinkingEnabled) break;
   }
 
   const pendingToolUseIds = new Set<string>();

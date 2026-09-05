@@ -1,6 +1,6 @@
 {
   "name": "reasoning-carry",
-  "version": "0.1.0",
+  "version": "0.2.0-experimental",
   "description": "Carry opaque reasoning blocks across LLM turns without tripping provider 400s",
   "type": "module",
   "main": "./dist/index.cjs",

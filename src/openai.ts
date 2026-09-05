@@ -34,6 +34,13 @@ export interface OpenAIOptions {
    * must preserve the blob or the next call 400s.
    */
   store?: boolean;
+  /**
+   * DeepSeek thinking switch. `true` forces the tool_calls ⇒
+   * reasoning_content rule; `false` disables it (tools on, thinking off —
+   * otherwise a false positive). Default undefined: infer from history —
+   * enforced only when some message already carries reasoning_content.
+   */
+  thinking?: boolean;
 }
 
 function isObject(value: unknown): value is JsonObject {
@@ -209,7 +216,24 @@ function hasToolCalls(message: JsonObject): boolean {
   return Array.isArray(message.tool_calls) && message.tool_calls.length > 0;
 }
 
-function validateChat(entries: Indexed[], provider: "openai" | "deepseek"): void {
+function validateChat(
+  entries: Indexed[],
+  provider: "openai" | "deepseek",
+  options?: OpenAIOptions,
+): void {
+  // DeepSeek thinking evidence: the tool rule is enforced when the caller
+  // declares thinking on, or (default) when the history itself shows
+  // thinking was used. Without either, tools-without-reasoning passes —
+  // thinking may simply be off.
+  let thinkingEvidence = options?.thinking;
+  if (thinkingEvidence === undefined && provider === "deepseek") {
+    thinkingEvidence = entries.some(
+      ({ item }) =>
+        hasOwn(item, "reasoning_content") && typeof item.reasoning_content === "string" && item.reasoning_content.length > 0,
+    );
+  }
+  const enforceToolReasoning = provider === "deepseek" && thinkingEvidence === true;
+
   for (const { item: message, index } of entries) {
     const role = message.role as string;
     if (!CHAT_ROLES.has(role)) {
@@ -220,8 +244,9 @@ function validateChat(entries: Indexed[], provider: "openai" | "deepseek"): void
       // DeepSeek thinking + tools: an assistant message that issued a tool
       // call must send reasoning_content back on every later request. The
       // production failure is ABSENCE — a rebuilt message with only role,
-      // content and tool_calls — so absence with tool_calls throws here.
-      if (provider === "deepseek" && role === "assistant" && hasToolCalls(message)) {
+      // content and tool_calls — so absence with tool_calls throws here
+      // whenever thinking is on (declared or evidenced).
+      if (enforceToolReasoning && role === "assistant" && hasToolCalls(message)) {
         throw new CarryError(
           `DeepSeek assistant message at index ${index} issued tool_calls without reasoning_content (replay 400s — preserve choices[0].message verbatim)`,
         );
@@ -238,7 +263,7 @@ function validateChat(entries: Indexed[], provider: "openai" | "deepseek"): void
         `reasoning_content at chat message index ${index} must be a string`,
       );
     }
-    if (provider === "deepseek" && hasToolCalls(message) && message.reasoning_content.length === 0) {
+    if (enforceToolReasoning && hasToolCalls(message) && message.reasoning_content.length === 0) {
       throw new CarryError(
         `DeepSeek assistant message at index ${index} issued tool_calls with empty reasoning_content (replay 400s)`,
       );
@@ -300,13 +325,13 @@ export function carryOpenAI(
     }
     validateResponses(responses, options);
   } else if (shape === "chat") {
-    validateChat(chat, provider);
+    validateChat(chat, provider, options);
   } else {
     if (provider === "deepseek") {
       throw new CarryError("DeepSeek history must use chat messages, not Responses output items");
     }
     validateResponses(responses, options);
-    validateChat(chat, provider);
+    validateChat(chat, provider, options);
   }
 
   try {

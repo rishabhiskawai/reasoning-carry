@@ -1,7 +1,7 @@
 import type { Provider } from "./types.js";
 import { CarryError } from "./types.js";
 import { carryGemini } from "./gemini.js";
-import { carryAnthropic } from "./anthropic.js";
+import { carryAnthropic, type AnthropicOptions } from "./anthropic.js";
 import { carryOpenAI, type OpenAIOptions } from "./openai.js";
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -29,6 +29,13 @@ export interface CarryOptions {
    * encrypted_content. Ignored by other providers.
    */
   store?: boolean;
+  /**
+   * Thinking switch (anthropic + deepseek): `true` forces the
+   * thinking/tool rules with no history evidence needed (catches fully
+   * stripped histories); `false` disables them (thinking off — avoids
+   * false positives). Default undefined: infer from history evidence.
+   */
+  thinking?: boolean;
 }
 
 /**
@@ -50,7 +57,7 @@ export function assertReplaySafe(
     case "gemini":
       return carryGemini(turns);
     case "anthropic":
-      return carryAnthropic(turns);
+      return carryAnthropic(turns, options as AnthropicOptions | undefined);
     case "openai":
     case "deepseek":
       return carryOpenAI(turns, provider, options as OpenAIOptions | undefined);
@@ -71,7 +78,8 @@ export const carry = assertReplaySafe;
  * Expected shapes (verbatim sub-objects, per provider docs):
  * - gemini: `{ candidates: [{ content: { role, parts } }] }`
  * - anthropic: `{ content: [...] }` (response content blocks)
- * - openai: `{ output: [...] }` (Responses API output items)
+ * - openai: `{ output: [...] }` (Responses API) or
+ *   `{ choices: [{ message: {...} }] }` (Chat Completions API)
  * - deepseek: `{ choices: [{ message: {...} }] }`
  */
 export function fromResponse(response: unknown, provider: Provider): unknown[] {
@@ -92,10 +100,17 @@ export function fromResponse(response: unknown, provider: Provider): unknown[] {
       return safeClone([{ role: "assistant", content: response.content }], "anthropic response content");
     }
     case "openai": {
-      if (!Array.isArray(response.output)) {
-        throw new CarryError("openai response must contain output[] (Responses API)");
+      if (Array.isArray(response.output)) {
+        return safeClone(response.output, "openai response output");
       }
-      return safeClone(response.output, "openai response output");
+      const message = (response.choices as unknown[])?.[0] as Record<string, unknown> | undefined;
+      const inner = message?.["message"];
+      if (isObject(inner)) {
+        return safeClone([inner], "openai chat-completions message");
+      }
+      throw new CarryError(
+        "openai response must contain output[] (Responses API) or choices[0].message (Chat Completions API)",
+      );
     }
     case "deepseek": {
       const message = (response.choices as unknown[])?.[0] as Record<string, unknown> | undefined;
@@ -130,6 +145,7 @@ export function append(
 export type { Provider } from "./types.js";
 export { CarryError } from "./types.js";
 export type { OpenAIOptions } from "./openai.js";
+export type { AnthropicOptions } from "./anthropic.js";
 export { carryGemini } from "./gemini.js";
 export { carryAnthropic } from "./anthropic.js";
 export { carryOpenAI } from "./openai.js";
