@@ -38,6 +38,13 @@ dropped upstream.
 // store:true / previous_response_id conversations may replay id-only
 // reasoning items (no encrypted_content). Default is stateless (strict).
 assertReplaySafe(history, "openai", { store: true });
+
+// thinking is on but the history alone can't prove it (fully stripped
+// blobs leave no evidence): force the thinking/tool rules. false disables
+// them (tools on, thinking off — avoids false positives). Default infers
+// from history evidence.
+assertReplaySafe(history, "anthropic", { thinking: true });
+assertReplaySafe(history, "deepseek", { thinking: false });
 ```
 
 ## Limits (honest)

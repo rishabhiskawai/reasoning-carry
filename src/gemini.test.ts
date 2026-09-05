@@ -295,12 +295,14 @@ describe("carryGemini — deep-clone / frozen-input safety", () => {
 // --- carryGemini — failure detection (the real "400" case) ---------------
 
 describe("carryGemini — catches the missing-signature 400", () => {
-  it("throws CarryError when a functionCall in turn 2+ has no thought_signature", () => {
+  it("throws CarryError when a current-turn functionCall has no thought_signature", () => {
     // Real-world cause: caller did JSON.stringify(JSON.parse(...)) on
     // history, or an openai-compat proxy dropped the unknown field.
+    // Gemini 3 requires the signature from the first model step on —
+    // both tool calls below are violations; the first one throws.
     const input = [
       { role: "user", parts: [{ text: "compute 17*23" }] },
-      // First model turn — signature MISSING but tolerated by API.
+      // First model turn — signature MISSING: Gemini 3 400s here too.
       {
         role: "model",
         parts: [
@@ -332,8 +334,9 @@ describe("carryGemini — catches the missing-signature 400", () => {
     const mangled = JSON.parse(JSON.stringify(input));
     // Strip the signature on the SECOND model turn's functionCall
     // (turn[3].parts[1]) — like a "drop unknown fields" sanitizer would.
-    // (The first model turn's tool call tolerates absence; we need turn #2
-    //  — modelTurnIndex === 1 — to trip the policy.)
+    // (Every current-turn model step is checked, so stripping any of them
+    // trips the policy; turn #2 keeps this case distinct from the
+    // first-turn test above.)
     delete mangled[3].parts[1].thought_signature;
     expect(() => carryGemini(mangled)).toThrow(CarryError);
     expect(() => carryGemini(mangled)).toThrow(/missing thought_signature/);
@@ -438,7 +441,7 @@ describe("case-count lock (CI sanity)", () => {
       "passes model turns where text parts lack a signature (Gemini tolerates it)",
       "does not mutate a frozen input array",
       "does not mutate frozen parts even when adding a pass-through turn",
-      "throws CarryError when a functionCall in turn 2+ has no thought_signature",
+      "throws CarryError when a current-turn functionCall has no thought_signature",
       "detects signature loss caused by a JSON round-trip",
       "detects signature loss on a text part that carried one (mangled to wrong type)",
       "detects empty-string signature (also a 400)",
