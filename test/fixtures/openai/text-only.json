@@ -1,0 +1,13 @@
+{
+  "input": [
+    {
+      "role": "user",
+      "content": "Hello"
+    },
+    {
+      "role": "assistant",
+      "content": "Synthetic plain response"
+    }
+  ],
+  "mustPreserve": []
+}

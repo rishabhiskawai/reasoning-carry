@@ -1,0 +1,19 @@
+{
+  "input": [
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "thinking",
+          "thinking": "Synthetic replay with signature removed."
+        },
+        {
+          "type": "text",
+          "text": "Answer"
+        }
+      ]
+    }
+  ],
+  "mustPreserve": [],
+  "mustThrow": true
+}

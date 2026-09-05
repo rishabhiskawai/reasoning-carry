@@ -1,0 +1,16 @@
+{
+  "input": [
+    {
+      "type": "reasoning",
+      "id": "rs_synthetic_lost",
+      "summary": [
+        {
+          "type": "summary_text",
+          "text": "Synthetic summary is not the encrypted payload"
+        }
+      ]
+    }
+  ],
+  "mustPreserve": [],
+  "mustThrow": true
+}

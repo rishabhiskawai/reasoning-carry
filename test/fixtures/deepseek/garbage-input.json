@@ -1,0 +1,14 @@
+{
+  "input": [
+    null,
+    17,
+    "not a DeepSeek turn",
+    {
+      "role": "assistant",
+      "content": [],
+      "reasoning_content": null
+    }
+  ],
+  "mustPreserve": [],
+  "mustThrow": true
+}

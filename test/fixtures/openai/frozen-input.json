@@ -1,0 +1,55 @@
+{
+  "input": [
+    {
+      "role": "user",
+      "content": "Synthetic: check the weather."
+    },
+    {
+      "type": "reasoning",
+      "id": "rs_synthetic_1",
+      "summary": [
+        {
+          "type": "summary_text",
+          "text": "Synthetic weather lookup"
+        }
+      ],
+      "encrypted_content": "U1lOVEhfT1BFTkFJX0VOQ1JZUFRFRDE="
+    },
+    {
+      "type": "function_call",
+      "id": "fc_synthetic_1",
+      "call_id": "call_synthetic_o1",
+      "name": "weather",
+      "arguments": "{\"city\":\"Testville\"}",
+      "status": "completed"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "call_synthetic_o1",
+      "output": "{\"temperature\":21}"
+    },
+    {
+      "type": "reasoning",
+      "id": "rs_synthetic_2",
+      "summary": [],
+      "encrypted_content": "U1lOVEhfT1BFTkFJX0VOQ1JZUFRFRDI="
+    },
+    {
+      "type": "message",
+      "id": "msg_synthetic_1",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "Synthetic: 21 degrees.",
+          "annotations": []
+        }
+      ]
+    }
+  ],
+  "mustPreserve": [
+    "$[1].encrypted_content",
+    "$[4].encrypted_content"
+  ]
+}

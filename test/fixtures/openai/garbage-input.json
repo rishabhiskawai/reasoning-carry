@@ -1,0 +1,14 @@
+{
+  "input": [
+    null,
+    17,
+    "not a Responses item",
+    {
+      "type": "reasoning",
+      "summary": "not an array",
+      "encrypted_content": null
+    }
+  ],
+  "mustPreserve": [],
+  "mustThrow": true
+}

@@ -1,0 +1,1 @@
+{"input":[{"content":null,"reasoning_content":42,"role":"assistant","tool_calls":[{"function":{"arguments":"{}","name":"weather"},"id":"call_synthetic_d1","type":"function"}]}],"mustPreserve":[],"mustThrow":true}

@@ -1,0 +1,80 @@
+{
+  "input": [
+    {
+      "role": "user",
+      "parts": [
+        {
+          "text": "Synthetic: check the weather in Testville."
+        }
+      ]
+    },
+    {
+      "role": "model",
+      "parts": [
+        {
+          "thought": true,
+          "text": "Synthetic internal note.",
+          "thought_signature": "U1lOVEhfR0VNX1RFWFQ9PQ=="
+        },
+        {
+          "functionCall": {
+            "id": "call_synthetic_g1",
+            "name": "weather",
+            "args": {
+              "city": "Testville"
+            }
+          },
+          "thought_signature": "U1lOVEhfR0VNX0NBTExfMQ=="
+        },
+        {
+          "functionCall": {
+            "id": "call_synthetic_g2",
+            "name": "clock",
+            "args": {
+              "zone": "UTC"
+            }
+          },
+          "thought_signature": "U1lOVEhfR0VNX0NBTExfMg=="
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "parts": [
+        {
+          "functionResponse": {
+            "id": "call_synthetic_g1",
+            "name": "weather",
+            "response": {
+              "temperature": 21
+            }
+          }
+        },
+        {
+          "functionResponse": {
+            "id": "call_synthetic_g2",
+            "name": "clock",
+            "response": {
+              "time": "12:00"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "role": "model",
+      "parts": [
+        {
+          "text": "Synthetic: 21 degrees at noon.",
+          "thought_signature": "U1lOVEhfR0VNX0ZJTkFM"
+        }
+      ]
+    }
+  ],
+  "mustPreserve": [
+    "$[1].parts[0].thought_signature",
+    "$[1].parts[1].thought_signature",
+    "$[1].parts[2].thought_signature",
+    "$[3].parts[0].thought_signature"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "input": [
+    {
+      "role": "assistant",
+      "content": "Synthetic answer",
+      "reasoning_content": {
+        "0": 83,
+        "1": 89,
+        "2": 78,
+        "3": 84,
+        "4": 72
+      }
+    }
+  ],
+  "mustPreserve": [],
+  "mustThrow": true
+}

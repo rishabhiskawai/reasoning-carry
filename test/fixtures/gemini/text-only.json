@@ -1,0 +1,21 @@
+{
+  "input": [
+    {
+      "role": "user",
+      "parts": [
+        {
+          "text": "Hello"
+        }
+      ]
+    },
+    {
+      "role": "model",
+      "parts": [
+        {
+          "text": "Synthetic plain response"
+        }
+      ]
+    }
+  ],
+  "mustPreserve": []
+}

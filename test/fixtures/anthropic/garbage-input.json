@@ -1,0 +1,13 @@
+{
+  "input": [
+    null,
+    17,
+    "not a Claude turn",
+    {
+      "role": "assistant",
+      "content": 42
+    }
+  ],
+  "mustPreserve": [],
+  "mustThrow": true
+}

@@ -1,0 +1,65 @@
+{
+  "input": [
+    {
+      "role": "user",
+      "content": "Synthetic: what is the weather?"
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "thinking",
+          "thinking": "Synthetic thought.\nKeep spacing:  two spaces. λ",
+          "signature": "U1lOVEhfQ0xBVURFX1NJRzE="
+        },
+        {
+          "type": "redacted_thinking",
+          "data": "U1lOVEhfUkVEQUNURURfREFUQQ=="
+        },
+        {
+          "type": "text",
+          "text": "Synthetic: checking."
+        },
+        {
+          "type": "tool_use",
+          "id": "toolu_synthetic_1",
+          "name": "weather",
+          "input": {
+            "city": "Testville"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "tool_use_id": "toolu_synthetic_1",
+          "content": "21 degrees"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "thinking",
+          "thinking": "Synthetic follow-up thought.",
+          "signature": "U1lOVEhfQ0xBVURFX1NJRzI="
+        },
+        {
+          "type": "text",
+          "text": "Synthetic: 21 degrees."
+        }
+      ]
+    }
+  ],
+  "mustPreserve": [
+    "$[1].content[0].thinking",
+    "$[1].content[0].signature",
+    "$[1].content[1].data",
+    "$[3].content[0].thinking",
+    "$[3].content[0].signature"
+  ]
+}

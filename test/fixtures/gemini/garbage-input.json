@@ -1,0 +1,13 @@
+{
+  "input": [
+    null,
+    17,
+    "not a Gemini turn",
+    {
+      "role": "model",
+      "parts": "not an array"
+    }
+  ],
+  "mustPreserve": [],
+  "mustThrow": true
+}

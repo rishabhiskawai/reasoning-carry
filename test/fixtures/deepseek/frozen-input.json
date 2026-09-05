@@ -1,0 +1,37 @@
+{
+  "input": [
+    {
+      "role": "user",
+      "content": "Synthetic: check the weather."
+    },
+    {
+      "role": "assistant",
+      "content": null,
+      "reasoning_content": "Synthetic reasoning: keep  spaces.\nLine two\tλ🙂",
+      "tool_calls": [
+        {
+          "id": "call_synthetic_d1",
+          "type": "function",
+          "function": {
+            "name": "weather",
+            "arguments": "{\"city\":\"Testville\"}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_synthetic_d1",
+      "content": "21 degrees"
+    },
+    {
+      "role": "assistant",
+      "content": "Synthetic: 21 degrees.",
+      "reasoning_content": "Synthetic follow-up.\r\nDo not normalize. "
+    }
+  ],
+  "mustPreserve": [
+    "$[1].reasoning_content",
+    "$[3].reasoning_content"
+  ]
+}
