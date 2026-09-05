@@ -1,0 +1,29 @@
+{
+  "name": "reasoning-carry",
+  "version": "0.1.0",
+  "description": "Carry opaque reasoning blocks across LLM turns without tripping provider 400s",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "export": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts --minify",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "keywords": ["llm", "anthropic", "gemini", "openai", "thinking", "reasoning", "agents"],
+  "license": "MIT",
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
